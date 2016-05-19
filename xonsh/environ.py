@@ -27,7 +27,8 @@ from xonsh.tools import (
     is_completions_display_value, to_completions_display_value, is_string_set,
     csv_to_set, set_to_csv, get_sep, is_int, is_bool_seq, csv_to_bool_seq,
     bool_seq_to_csv, DefaultNotGiven, setup_win_unicode_console,
-    intensify_colors_on_win_setter, print_exception
+    intensify_colors_on_win_setter, print_exception, is_dynamic_cwd_width,
+    to_dynamic_cwd_tuple, dynamic_cwd_tuple_to_str
 )
 from xonsh.codecache import run_script_with_cache
 from xonsh.dirstack import _get_cwd
@@ -86,7 +87,7 @@ DEFAULT_ENSURERS = {
     'PATHEXT': (is_env_path, str_to_env_path, env_path_to_str),
     'RAISE_SUBPROC_ERROR': (is_bool, to_bool, bool_to_str),
     'RIGHT_PROMPT': (is_string, ensure_string, ensure_string),
-    'DYNAMIC_CWD_WIDTH': (is_string, ensure_string, ensure_string),
+    'DYNAMIC_CWD_WIDTH': (is_dynamic_cwd_width, to_dynamic_cwd_tuple, dynamic_cwd_tuple_to_str),
     'TEEPTY_PIPE_DELAY': (is_float, float, str),
     'UPDATE_OS_ENVIRON': (is_bool, to_bool, bool_to_str),
     'XONSHRC': (is_env_path, str_to_env_path, env_path_to_str),
@@ -1024,21 +1025,27 @@ def _collapsed_pwd():
     return leader + sep.join(base)
 
 def _dynamically_collapsed_pwd():
+    """
+        Return the compact current working directory
+
+        It respects the environment variable DYNAMIC_CWD_WIDTH.
+    """
+
     sep = get_sep()
     originial_path = _replace_home_cwd()
     pwd = originial_path.split(sep)
     cols, _ = shutil.get_terminal_size()
-    targetWidthRaw = builtins.__xonsh_env__['DYNAMIC_CWD_WIDTH']
+    target_width_raw = builtins.__xonsh_env__['DYNAMIC_CWD_WIDTH']
 
-    if (targetWidthRaw[-1] == '%'):
-        targetWidth = (cols * float(targetWidthRaw[:-1])) // 100
+    if (target_width_raw[-1] == '%'):
+        target_width = (cols * float(target_width_raw[:-1])) // 100
     else:
-        targetWidth = float(targetWidthRaw)
-    if targetWidth == float('inf'):
+        target_width = float(target_width_raw)
+    if target_width == float('inf'):
         return originial_path
     else:
         last = pwd.pop()
-        remaining_space = targetWidth - len(last) 
+        remaining_space = target_width - len(last) 
         # Reserve space for separators
         remaining_space_for_text = remaining_space - len(pwd) 
 
@@ -1052,8 +1059,14 @@ def _dynamically_collapsed_pwd():
 
         parts.append(last)
         full = sep.join(parts)
-        if (len(full) > targetWidth):
-            full = full[int(-targetWidth):]
+        # If even if displaying one letter per dir we are too long
+        if (len(full) > target_width):
+            # We truncate the left most part
+            full = "..." + full[int(-target_width) + 3:]
+            # if there is not even a single separator we still 
+            # want to display at least the beginning of the directory
+            if full.find(sep) == -1:
+                full = ("..." + sep + last)[0:int(target_width)]
         return full
 
 def _current_job():
